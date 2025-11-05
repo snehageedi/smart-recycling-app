@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import os
 from PIL import Image
+import time # 🟢 NEW: Needed for unique timestamps in feedback loop
 
 # --- NEW IMPORTS for Model Reassembly ---
 import io # Needed for creating an in-memory file object (BytesIO)
@@ -48,7 +49,6 @@ def load_and_cache_model():
     st.info("Searching for model parts...")
     
     # 1. Locate all model parts (e.g., model_part_00, model_part_01, ...)
-    # sorted() ensures they are stitched back together in the correct order.
     model_parts = sorted(glob.glob(f'{MODEL_PART_PREFIX}*')) 
     
     if not model_parts:
@@ -161,6 +161,22 @@ def classify_image_and_save_results(img, model, class_names):
         'final_status': final_status,
         'all_predictions': all_predictions
     }
+    
+# 🟢 NEW FUNCTION: For the User Feedback Loop
+def save_misclassified_image(img, correct_label):
+    """Saves the image to a 'user_feedback' folder for future retraining."""
+    feedback_dir = 'user_feedback'
+    if not os.path.exists(feedback_dir):
+        # In a real deployed app, Streamlit may not allow writing to disk.
+        # This is a placeholder; you'd replace this with saving to S3 or a database.
+        st.warning("Cannot write feedback to disk in this environment. Skipping save.")
+        return
+        
+    # Save the image with a unique name based on the corrected label
+    filename = f"{feedback_dir}/{correct_label}_{int(time.time())}.png"
+    img.save(filename)
+    st.success(f"Feedback recorded! Thank you for improving the model.")
+
 
 # --- NAVIGATION FUNCTIONS ---
 def go_to_step(target_step):
@@ -273,13 +289,14 @@ st.markdown("---")
 
 # --- STEP 0: INPUT/CAPTURE ---
 if st.session_state['step'] == 0:
-    st.markdown("### Upload or Capture Waste Item Image") # No 'Step 1'
+    st.markdown("### Upload or Capture Waste Item Image")
     
     # Metrics and Info 
     col_metrics, col_info = st.columns([1, 2])
     with col_metrics:
         st.markdown("#### Model Performance")
-        st.metric(label="Validation Accuracy", value=MODEL_EXPECTED_ACCURACY, delta="Deep Learning (VGG16)")
+        # 🟢 UI FIX: Updated VGG16 to EfficientNetB0
+        st.metric(label="Validation Accuracy", value=MODEL_EXPECTED_ACCURACY, delta="Deep Learning (EfficientNetB0)")
         st.caption("Expected reliability on unseen data.")
         
     with col_info:
@@ -309,7 +326,7 @@ if st.session_state['step'] == 0:
 
 # --- STEP 1: CONFIRMATION & ACTION ---
 elif st.session_state['step'] == 1:
-    st.markdown("### Confirm Image and Classify") # No 'Step 2'
+    st.markdown("### Confirm Image and Classify")
     
     if st.session_state['img_source']:
         col_img, col_actions = st.columns([1, 1])
@@ -320,12 +337,14 @@ elif st.session_state['step'] == 1:
         
         with col_actions:
             st.subheader("Actions")
-            st.markdown("Click the button below to initiate the Deep Learning analysis. The image will be processed by the VGG16 model.")
+            # 🟢 UI FIX: Updated VGG16 to EfficientNetB0
+            st.markdown("Click the button below to initiate the Deep Learning analysis. The image will be processed by the EfficientNetB0 model.")
             
             # Button to trigger classification and move to Step 2
             if st.button('🚀 CLASSIFY WASTE ITEM', use_container_width=True):
                 # Run classification and store results
-                with st.spinner('Running VGG16 Transfer Learning Analysis...'):
+                # 🟢 UI FIX: Updated VGG16 to EfficientNetB0
+                with st.spinner('Running EfficientNetB0 Transfer Learning Analysis...'):
                     results = classify_image_and_save_results(st.session_state['img_source'], model, CLASS_NAMES)
                 
                 st.session_state['results'] = results
@@ -340,7 +359,7 @@ elif st.session_state['step'] == 1:
 
 # --- STEP 2: RESULTS DISPLAY ---
 elif st.session_state['step'] == 2:
-    st.markdown("### Final Classification Report") # No 'Step 3'
+    st.markdown("### Final Classification Report")
     results = st.session_state['results']
     img = st.session_state['img_source']
     
@@ -378,6 +397,35 @@ elif st.session_state['step'] == 2:
                 st.warning("⚠️ Low Confidence: Prediction is uncertain.")
             else:
                 st.info("✅ High Confidence: Result is reliable.")
+                
+            # 🟢 NEW FEATURE: User Feedback Loop
+            st.markdown("---")
+            st.markdown("#### **Was this classification correct?**")
+            
+            col_yes, col_no = st.columns(2)
+            
+            if col_yes.button('✅ Yes, it was correct!', use_container_width=True):
+                st.success("Great! Thank you for the confirmation.")
+                
+            if col_no.button('❌ No, it was wrong.', use_container_width=True):
+                # Placeholder for the future feature to capture user correction
+                st.session_state['feedback_mode'] = True
+                
+            # Logic to handle user correction if the previous button was clicked
+            if 'feedback_mode' in st.session_state and st.session_state['feedback_mode']:
+                st.warning(f"Please select the correct category for the item classified as **{results['detailed_class'].upper()}**:")
+                
+                # Create a list of classes excluding the current prediction
+                other_classes = [c for c in CLASS_NAMES if c != results['detailed_class']]
+                
+                correct_class = st.selectbox("Select the correct waste category:", other_classes)
+                
+                if st.button("Submit Correction and Save Image"):
+                    # Pass the original image and the correct class to the saving function
+                    save_misclassified_image(img, correct_class)
+                    del st.session_state['feedback_mode']
+                    st.rerun()
+
 
         # --- Sorting Guidance Tip (Full Width Section) ---
         st.markdown("---")
