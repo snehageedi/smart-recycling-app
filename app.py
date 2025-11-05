@@ -9,8 +9,8 @@ import os
 from PIL import Image
 
 # --- NEW IMPORTS for Model Reassembly ---
-import io       # Needed for creating an in-memory file object (BytesIO)
-import glob     # Needed for finding all model part files
+import io # Needed for creating an in-memory file object (BytesIO)
+import glob # Needed for finding all model part files
 # ----------------------------------------
 
 # --- CONFIGURATION (UPDATED for model parts) ---
@@ -42,7 +42,8 @@ if 'results' not in st.session_state:
 def load_and_cache_model():
     """
     Reads model parts, combines them into a byte stream (BytesIO), 
-    and loads the Keras model from the in-memory stream.
+    writes the stream to a temporary file, loads the Keras model from the path,
+    and then deletes the temporary file.
     """
     st.info("Searching for model parts...")
     
@@ -68,18 +69,31 @@ def load_and_cache_model():
             st.stop()
             
     # 3. Create a BytesIO object (in-memory file) from the combined byte stream
-    model_file_like = io.BytesIO(combined_bytes)
+    combined_stream = io.BytesIO(combined_bytes)
     
-    # 4. Keras loads the model directly from the file-like object
+    # 4. Keras requires a file path (string) for load_model, not BytesIO.
+    # We must write the combined stream to a temporary file path first.
     try:
-        model = tf.keras.models.load_model(model_file_like)
+        # Create a temporary file path in the current directory (Streamlit server storage)
+        temp_model_path = "temp_combined_model.h5"
+        
+        # Write the combined stream to the temporary file
+        with open(temp_model_path, 'wb') as f:
+            f.write(combined_stream.getvalue())
+
+        # Load the model from the temporary file path (which load_model requires)
+        model = tf.keras.models.load_model(temp_model_path)
+        
+        # Clean up the temporary file immediately after loading to save space
+        os.remove(temp_model_path)
+        
         st.success("AI Model loaded successfully! Ready to classify.")
         return model
+        
     except Exception as e:
         st.error(f"FATAL ERROR: Failed to load model from combined stream. Check TensorFlow/Keras version in requirements.txt. Error: {e}")
         st.stop()
 
-# The original load_and_cache_model(path) is replaced above.
 
 @st.cache_resource
 def get_class_names(dataset_path):
@@ -237,7 +251,6 @@ st.markdown("---")
 
 
 # Load model outside the main block for efficiency
-# UPDATED: model = load_and_cache_model() is called without the path argument now
 try:
     model = load_and_cache_model() 
     CLASS_NAMES = get_class_names(DATASET_PATH)
@@ -380,4 +393,3 @@ elif st.session_state['step'] == 2:
 
 # --- 4. Footer ---
 st.markdown("---")
-# Dummy comment to trigger commit
