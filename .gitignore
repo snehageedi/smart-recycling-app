@@ -1,0 +1,14 @@
+# Python virtual environment folder
+venv/
+.venv/
+
+# Ignore local compiled files and caches
+__pycache__/
+*.pyc
+*.swp
+
+# Ignore the large original model file
+smart_waste_classifier_model.h5
+
+# Ignore the temporary splitting script
+split_model.py
